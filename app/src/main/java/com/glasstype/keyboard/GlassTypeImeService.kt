@@ -1,7 +1,10 @@
 package com.glasstype.keyboard
 
 import android.content.Context
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
@@ -12,9 +15,49 @@ import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
 import android.widget.Button
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
+
+private class GlyphView(context: Context, private val kind: Int) : View(context) {
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = Color.WHITE
+        strokeCap = Paint.Cap.ROUND
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        val w = width.toFloat()
+        val h = height.toFloat()
+        val s = minOf(w, h) * 0.27f
+        val cx = w / 2f
+        val cy = h / 2f
+        paint.strokeWidth = s * 0.12f
+        if (kind == 0) {
+            // Ikon glob
+            canvas.drawCircle(cx, cy, s, paint)
+            canvas.drawLine(cx - s, cy, cx + s, cy, paint)
+            canvas.drawLine(cx, cy - s, cx, cy + s, paint)
+            canvas.drawOval(RectF(cx - s * 0.45f, cy - s, cx + s * 0.45f, cy + s), paint)
+        } else {
+            // Ikon mikrofon
+            canvas.drawRoundRect(
+                RectF(cx - s * 0.32f, cy - s, cx + s * 0.32f, cy + s * 0.15f),
+                s * 0.32f, s * 0.32f, paint
+            )
+            canvas.drawArc(
+                RectF(cx - s * 0.62f, cy - s * 0.45f, cx + s * 0.62f, cy + s * 0.55f),
+                0f, 180f, false, paint
+            )
+            canvas.drawLine(cx, cy + s * 0.55f, cx, cy + s * 0.95f, paint)
+            canvas.drawLine(cx - s * 0.35f, cy + s * 0.95f, cx + s * 0.35f, cy + s * 0.95f, paint)
+        }
+    }
+}
 
 class GlassTypeImeService : InputMethodService() {
     private var caps = false
@@ -72,22 +115,85 @@ class GlassTypeImeService : InputMethodService() {
         }
     }
 
+    private fun switchKeyboard() {
+        try {
+            var switched = false
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                switched = switchToNextInputMethod(false)
+            }
+            if (!switched) {
+                (getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
+                    .showInputMethodPicker()
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun startVoice() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                val map = imm.shortcutInputMethodsAndSubtypes
+                for ((info, subtypes) in map) {
+                    for (st in subtypes) {
+                        if (st.mode == "voice") {
+                            switchInputMethod(info.id, st)
+                            return
+                        }
+                    }
+                }
+            }
+            Toast.makeText(this, "Input suara tidak tersedia", Toast.LENGTH_SHORT).show()
+        } catch (_: Exception) {
+            Toast.makeText(this, "Input suara tidak tersedia", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun buildBottomBar(): LinearLayout {
+        val d = resources.displayMetrics.density
+        fun dp(v: Int) = (v * d).toInt()
+
+        val bar = LinearLayout(this)
+        bar.orientation = LinearLayout.HORIZONTAL
+        bar.gravity = Gravity.CENTER_VERTICAL
+        bar.setPadding(dp(10), dp(2), dp(10), 0)
+
+        val globe = GlyphView(this, 0)
+        globe.setOnClickListener { switchKeyboard() }
+
+        val center = FrameLayout(this)
+        val pill = View(this)
+        val pillBg = GradientDrawable()
+        pillBg.setColor(Color.argb(235, 255, 255, 255))
+        pillBg.cornerRadius = dp(3).toFloat()
+        pill.background = pillBg
+        center.addView(pill, FrameLayout.LayoutParams(dp(134), dp(5), Gravity.CENTER))
+
+        val mic = GlyphView(this, 1)
+        mic.setOnClickListener { startVoice() }
+
+        bar.addView(globe, LinearLayout.LayoutParams(dp(44), dp(44)))
+        bar.addView(center, LinearLayout.LayoutParams(0, dp(44), 1f))
+        bar.addView(mic, LinearLayout.LayoutParams(dp(44), dp(44)))
+        return bar
+    }
+
     override fun onCreateInputView(): View {
         val density = resources.displayMetrics.density
         fun dp(v: Int) = (v * density).toInt()
 
         root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(7), dp(8), dp(7), dp(10))
+            setPadding(dp(5), dp(8), dp(5), dp(2))
             background = GradientDrawable(
                 GradientDrawable.Orientation.TOP_BOTTOM,
-                intArrayOf(Color.argb(150, 246, 248, 253), Color.argb(215, 228, 233, 245))
+                intArrayOf(Color.argb(215, 34, 48, 64), Color.argb(245, 14, 22, 34))
             ).apply {
                 cornerRadii = floatArrayOf(
-                    dp(26).toFloat(), dp(26).toFloat(), dp(26).toFloat(), dp(26).toFloat(),
+                    dp(22).toFloat(), dp(22).toFloat(), dp(22).toFloat(), dp(22).toFloat(),
                     0f, 0f, 0f, 0f
                 )
-                setStroke(dp(1), Color.argb(200, 255, 255, 255))
+                setStroke(dp(1), Color.argb(55, 255, 255, 255))
             }
         }
 
@@ -96,7 +202,7 @@ class GlassTypeImeService : InputMethodService() {
             t.text = label
             t.textSize = 20f
             t.gravity = Gravity.CENTER
-            t.setTextColor(Color.rgb(70, 78, 95))
+            t.setTextColor(Color.rgb(210, 216, 228))
             t.setPadding(dp(16), dp(2), dp(16), dp(2))
             t.setOnClickListener { onClick() }
             return t
@@ -110,7 +216,7 @@ class GlassTypeImeService : InputMethodService() {
         val logo = TextView(this).apply {
             text = "GlassType"
             textSize = 13f
-            setTextColor(Color.rgb(55, 62, 76))
+            setTextColor(Color.rgb(210, 216, 228))
             typeface = Typeface.DEFAULT_BOLD
         }
         val spacer = View(this)
@@ -129,7 +235,7 @@ class GlassTypeImeService : InputMethodService() {
                 text = label
                 textSize = 15f
                 gravity = Gravity.CENTER
-                setTextColor(Color.rgb(55, 62, 76))
+                setTextColor(Color.WHITE)
             }
             suggestions.addView(t, LinearLayout.LayoutParams(0, dp(30), 1f))
         }
@@ -138,6 +244,7 @@ class GlassTypeImeService : InputMethodService() {
         keyRows = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(keyRows)
         buildKeys()
+        root.addView(buildBottomBar())
         return root
     }
 
@@ -160,11 +267,9 @@ class GlassTypeImeService : InputMethodService() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
         }
-        bottom.addView(makeKey("123", 1.25f, true) {})
-        bottom.addView(makeKey("☺", 1f, true) { commit("😊") })
-        bottom.addView(makeKey("English", 4.2f, false) { commit(" ") })
-        bottom.addView(makeKey("⌫", 1.2f, true) { currentInputConnection?.deleteSurroundingText(1, 0) })
-        bottom.addView(makeKey("↵", 1.35f, false) { currentInputConnection?.commitText("\n", 1) })
+        bottom.addView(makeKey("123", 1.6f, true) {})
+        bottom.addView(makeKey("English", 5f, false) { commit(" ") })
+        bottom.addView(makeKey("↵", 1.6f, true) { currentInputConnection?.commitText("\n", 1) })
         keyRows.addView(bottom)
     }
 
@@ -183,12 +288,12 @@ class GlassTypeImeService : InputMethodService() {
     private fun makeKey(label: String, weight: Float, utility: Boolean = false, action: () -> Unit): Button {
         val d = resources.displayMetrics.density
         val heightPx = (keyHeightDp() * d).toInt()
-        val radius = 9f * d
+        val radius = 7f * d
         val strokePx = (1 * d).toInt().coerceAtLeast(1)
-        val stroke = Color.argb(190, 255, 255, 255)
+        val stroke = Color.argb(35, 255, 255, 255)
 
-        val normal = if (utility) Color.argb(135, 178, 190, 213) else Color.argb(150, 255, 255, 255)
-        val pressed = if (utility) Color.argb(200, 150, 165, 195) else Color.argb(235, 255, 255, 255)
+        val normal = if (utility) Color.argb(75, 120, 130, 150) else Color.argb(100, 155, 165, 182)
+        val pressed = if (utility) Color.argb(150, 170, 180, 200) else Color.argb(175, 205, 212, 225)
 
         val states = StateListDrawable().apply {
             addState(intArrayOf(android.R.attr.state_pressed), glassShape(pressed, radius, stroke, strokePx))
@@ -199,7 +304,7 @@ class GlassTypeImeService : InputMethodService() {
             text = label
             isAllCaps = false
             textSize = if (utility) 13f else 18f
-            setTextColor(Color.rgb(38, 43, 53))
+            setTextColor(Color.WHITE)
             setPadding(0, 0, 0, 0)
             background = states
             stateListAnimator = null
