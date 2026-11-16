@@ -189,10 +189,7 @@ class GlassTypeImeService : InputMethodService() {
                 GradientDrawable.Orientation.TOP_BOTTOM,
                 intArrayOf(Color.argb(215, 34, 48, 64), Color.argb(245, 14, 22, 34))
             ).apply {
-                cornerRadii = floatArrayOf(
-                    dp(22).toFloat(), dp(22).toFloat(), dp(22).toFloat(), dp(22).toFloat(),
-                    0f, 0f, 0f, 0f
-                )
+                cornerRadius = 0f
                 setStroke(dp(1), Color.argb(55, 255, 255, 255))
             }
         }
