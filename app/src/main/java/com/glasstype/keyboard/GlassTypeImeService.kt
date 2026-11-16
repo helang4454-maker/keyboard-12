@@ -5,6 +5,7 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.StateListDrawable
 import android.inputmethodservice.InputMethodService
 import android.os.Build
 import android.view.Gravity
@@ -63,6 +64,14 @@ class GlassTypeImeService : InputMethodService() {
         }
     }
 
+    private fun glassShape(fill: Int, radiusPx: Float, strokeColor: Int, strokePx: Int): GradientDrawable {
+        return GradientDrawable().apply {
+            setColor(fill)
+            cornerRadius = radiusPx
+            setStroke(strokePx, strokeColor)
+        }
+    }
+
     override fun onCreateInputView(): View {
         val density = resources.displayMetrics.density
         fun dp(v: Int) = (v * density).toInt()
@@ -70,13 +79,15 @@ class GlassTypeImeService : InputMethodService() {
         root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(7), dp(8), dp(7), dp(10))
-            background = GradientDrawable().apply {
-                setColor(Color.argb(112, 242, 245, 252))
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                intArrayOf(Color.argb(150, 246, 248, 253), Color.argb(215, 228, 233, 245))
+            ).apply {
                 cornerRadii = floatArrayOf(
-                    dp(22).toFloat(), dp(22).toFloat(), dp(22).toFloat(), dp(22).toFloat(),
+                    dp(26).toFloat(), dp(26).toFloat(), dp(26).toFloat(), dp(26).toFloat(),
                     0f, 0f, 0f, 0f
                 )
-                setStroke(dp(1), Color.argb(110, 255, 255, 255))
+                setStroke(dp(1), Color.argb(200, 255, 255, 255))
             }
         }
 
@@ -85,7 +96,7 @@ class GlassTypeImeService : InputMethodService() {
             t.text = label
             t.textSize = 20f
             t.gravity = Gravity.CENTER
-            t.setTextColor(Color.DKGRAY)
+            t.setTextColor(Color.rgb(70, 78, 95))
             t.setPadding(dp(16), dp(2), dp(16), dp(2))
             t.setOnClickListener { onClick() }
             return t
@@ -172,16 +183,26 @@ class GlassTypeImeService : InputMethodService() {
     private fun makeKey(label: String, weight: Float, utility: Boolean = false, action: () -> Unit): Button {
         val d = resources.displayMetrics.density
         val heightPx = (keyHeightDp() * d).toInt()
+        val radius = 9f * d
+        val strokePx = (1 * d).toInt().coerceAtLeast(1)
+        val stroke = Color.argb(190, 255, 255, 255)
+
+        val normal = if (utility) Color.argb(135, 178, 190, 213) else Color.argb(150, 255, 255, 255)
+        val pressed = if (utility) Color.argb(200, 150, 165, 195) else Color.argb(235, 255, 255, 255)
+
+        val states = StateListDrawable().apply {
+            addState(intArrayOf(android.R.attr.state_pressed), glassShape(pressed, radius, stroke, strokePx))
+            addState(intArrayOf(), glassShape(normal, radius, stroke, strokePx))
+        }
+
         val button = Button(this).apply {
             text = label
             isAllCaps = false
             textSize = if (utility) 13f else 18f
             setTextColor(Color.rgb(38, 43, 53))
             setPadding(0, 0, 0, 0)
-            background = GradientDrawable().apply {
-                setColor(if (utility) Color.argb(205, 194, 202, 216) else Color.argb(220, 255, 255, 255))
-                cornerRadius = 7f * d
-            }
+            background = states
+            stateListAnimator = null
             minHeight = 0
             minimumHeight = 0
             setOnClickListener { action() }
