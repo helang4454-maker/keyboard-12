@@ -3,9 +3,9 @@ package com.glasstype.keyboard
 import android.content.Context
 import android.content.res.Configuration
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Matrix
 import android.graphics.Outline
 import android.graphics.Paint
 import android.graphics.RectF
@@ -37,7 +37,6 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
-import java.io.File
 
 private class GlyphView(context: Context, private val kind: Int, color: Int) : View(context) {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -100,6 +99,10 @@ class GlassTypeImeService : InputMethodService() {
     private lateinit var keyRows: LinearLayout
     private lateinit var pal: Palette
 
+    private var snapView: ImageView? = null
+    private var snapTint: View? = null
+    private var snapBmp: Bitmap? = null
+
     private val emojiTabs = listOf("😀", "👍", "💖", "🐶", "🍔")
     private val emojiSets: List<List<String>> = listOf(
         listOf(
@@ -151,6 +154,19 @@ class GlassTypeImeService : InputMethodService() {
         applyLiveBlur()
     }
 
+    override fun onStartInput(attribute: EditorInfo?, restarting: Boolean) {
+        super.onStartInput(attribute, restarting)
+        if (!restarting &&
+            prefs().getBoolean("snap_bg", false) &&
+            !isInputViewShown &&
+            !isPasswordField(attribute)
+        ) {
+            GlassCaptureService.capture { bmp ->
+                if (bmp != null) applySnap(bmp)
+            }
+        }
+    }
+
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
         applyLiveBlur()
@@ -195,8 +211,8 @@ class GlassTypeImeService : InputMethodService() {
         fun a(base: Int): Int = (base * f).toInt().coerceIn(0, 255)
         return if (isDark()) {
             Palette(
-                bgTop = Color.argb(a(253), 34, 48, 64),
-                bgBottom = Color.argb(a(255), 14, 22, 34),
+                bgTop = Color.argb(a(253), 44, 46, 50),
+                bgBottom = Color.argb(a(255), 28, 30, 34),
                 stroke = Color.argb(55, 255, 255, 255),
                 key = Color.argb(a(118), 155, 165, 182),
                 keyUtil = Color.argb(a(88), 120, 130, 150),
@@ -235,6 +251,20 @@ class GlassTypeImeService : InputMethodService() {
         }
     }
 
+    private fun isPasswordField(info: EditorInfo?): Boolean {
+        val t = info?.inputType ?: return false
+        val cls = t and InputType.TYPE_MASK_CLASS
+        val v = t and InputType.TYPE_MASK_VARIATION
+        return when (cls) {
+            InputType.TYPE_CLASS_TEXT ->
+                v == InputType.TYPE_TEXT_VARIATION_PASSWORD ||
+                    v == InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD ||
+                    v == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD
+            InputType.TYPE_CLASS_NUMBER -> v == InputType.TYPE_NUMBER_VARIATION_PASSWORD
+            else -> false
+        }
+    }
+
     // ---------- Blur ----------
 
     private fun applyLiveBlur() {
@@ -262,22 +292,39 @@ class GlassTypeImeService : InputMethodService() {
         }
     }
 
-    private fun loadBackground(): Bitmap? {
-        val f = File(filesDir, "bg.jpg")
-        if (!f.exists()) return null
-        return try {
-            BitmapFactory.decodeFile(f.path)
-        } catch (_: Throwable) {
-            null
-        }
-    }
-
     private fun softBlur(src: Bitmap, level: Int): Bitmap {
         if (level <= 0) return src
         val div = 2 + level / 4
         val w = (src.width / div).coerceAtLeast(2)
         val h = (src.height / div).coerceAtLeast(2)
         return Bitmap.createScaledBitmap(src, w, h, true)
+    }
+
+    private fun fitSnap() {
+        val iv = snapView ?: return
+        val bmp = snapBmp ?: return
+        val vw = iv.width.toFloat()
+        val vh = iv.height.toFloat()
+        if (vw <= 0f || vh <= 0f) return
+        val s = vw / bmp.width
+        val m = Matrix()
+        m.postScale(s, s)
+        m.postTranslate(0f, vh - bmp.height * s)
+        iv.imageMatrix = m
+    }
+
+    private fun applySnap(bmp: Bitmap) {
+        val iv = snapView ?: return
+        val shown = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            bmp
+        } else {
+            softBlur(bmp, prefs().getInt("snap_blur", 70).coerceIn(0, 100))
+        }
+        snapBmp = shown
+        iv.setImageBitmap(shown)
+        iv.visibility = View.VISIBLE
+        snapTint?.visibility = View.VISIBLE
+        fitSnap()
     }
 
     // ---------- Tindakan ----------
@@ -357,34 +404,43 @@ class GlassTypeImeService : InputMethodService() {
         val match = ViewGroup.LayoutParams.MATCH_PARENT
 
         val frame = FrameLayout(this)
+        snapView = null
+        snapTint = null
+        snapBmp = null
 
-        val bmp = loadBackground()
-        if (bmp != null) {
+        // Lapisan asas: gradien lutsinar
+        val base = View(this)
+        base.background = GradientDrawable(
+            GradientDrawable.Orientation.TOP_BOTTOM,
+            intArrayOf(pal.bgTop, pal.bgBottom)
+        )
+        frame.addView(base, FrameLayout.LayoutParams(match, match))
+
+        // Lapisan tangkapan skrin yang dikaburkan (gaya Vivo)
+        if (prefs().getBoolean("snap_bg", false)) {
             val iv = ImageView(this)
-            iv.scaleType = ImageView.ScaleType.CENTER_CROP
-            val level = prefs().getInt("img_blur", 60).coerceIn(0, 100)
+            iv.scaleType = ImageView.ScaleType.MATRIX
+            iv.visibility = View.GONE
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                iv.setImageBitmap(bmp)
+                val level = prefs().getInt("snap_blur", 70).coerceIn(0, 100)
                 if (level > 0) {
-                    val r = level * resources.displayMetrics.density * 0.35f
+                    val r = level * resources.displayMetrics.density * 0.3f
                     iv.setRenderEffect(RenderEffect.createBlurEffect(r, r, Shader.TileMode.CLAMP))
                 }
-            } else {
-                iv.setImageBitmap(softBlur(bmp, level))
             }
+            iv.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> fitSnap() }
             frame.addView(iv, FrameLayout.LayoutParams(match, match))
 
-            val tintAlpha = prefs().getInt("img_tint", 35).coerceIn(0, 100) * 255 / 100
+            val tintAlpha = prefs().getInt("snap_tint", 55).coerceIn(0, 100) * 255 / 100
             val tint = View(this)
             tint.setBackgroundColor(withAlpha(pal.bgBottom, tintAlpha))
+            tint.visibility = View.GONE
             frame.addView(tint, FrameLayout.LayoutParams(match, match))
-        } else {
-            val tint = View(this)
-            tint.background = GradientDrawable(
-                GradientDrawable.Orientation.TOP_BOTTOM,
-                intArrayOf(pal.bgTop, pal.bgBottom)
-            )
-            frame.addView(tint, FrameLayout.LayoutParams(match, match))
+
+            snapView = iv
+            snapTint = tint
+            val existing = GlassCaptureService.snapshot
+            if (existing != null) applySnap(existing)
         }
 
         val line = View(this)
@@ -448,7 +504,7 @@ class GlassTypeImeService : InputMethodService() {
     }
 
     private fun buildBottomBar(): LinearLayout {
-        val h = prefs().getInt("bottom_dp", 64).coerceIn(30, 110)
+        val h = prefs().getInt("bottom_dp", 64).coerceIn(30, 220)
         val bar = LinearLayout(this)
         bar.orientation = LinearLayout.VERTICAL
         bar.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(h))
