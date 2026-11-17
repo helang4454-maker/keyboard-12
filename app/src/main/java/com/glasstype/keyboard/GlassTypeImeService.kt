@@ -116,8 +116,10 @@ private class Palette(
     val keyUtil: Int,
     val keyDown: Int,
     val keyUtilDown: Int,
+    val keyActive: Int,
     val keyStroke: Int,
     val text: Int,
+    val textActive: Int,
     val icon: Int
 )
 
@@ -241,30 +243,35 @@ class GlassTypeImeService : InputMethodService() {
         val f = prefs().getInt("opacity", 85).coerceIn(20, 100) / 100f
         fun a(base: Int): Int = (base * f).toInt().coerceIn(0, 255)
         return if (isDark()) {
+            // Kelabu neutral ala keyboard iOS gelap
             Palette(
-                bgTop = Color.argb(a(253), 44, 46, 50),
-                bgBottom = Color.argb(a(255), 28, 30, 34),
-                stroke = Color.argb(55, 255, 255, 255),
-                key = Color.argb(a(118), 155, 165, 182),
-                keyUtil = Color.argb(a(88), 120, 130, 150),
-                keyDown = Color.argb(a(206), 205, 212, 225),
-                keyUtilDown = Color.argb(a(176), 170, 180, 200),
-                keyStroke = Color.argb(35, 255, 255, 255),
+                bgTop = Color.argb(a(255), 52, 52, 52),
+                bgBottom = Color.argb(a(255), 46, 46, 46),
+                stroke = Color.argb(40, 255, 255, 255),
+                key = Color.argb(a(255), 112, 112, 112),
+                keyUtil = Color.argb(a(255), 74, 74, 74),
+                keyDown = Color.argb(a(255), 150, 150, 150),
+                keyUtilDown = Color.argb(a(255), 112, 112, 112),
+                keyActive = Color.argb(a(255), 232, 232, 232),
+                keyStroke = Color.TRANSPARENT,
                 text = Color.WHITE,
+                textActive = Color.rgb(30, 30, 30),
                 icon = Color.WHITE
             )
         } else {
             Palette(
-                bgTop = Color.argb(a(253), 246, 248, 253),
-                bgBottom = Color.argb(a(255), 228, 233, 245),
-                stroke = Color.argb(200, 255, 255, 255),
-                key = Color.argb(a(235), 255, 255, 255),
-                keyUtil = Color.argb(a(200), 178, 190, 213),
-                keyDown = Color.argb(a(255), 226, 231, 243),
-                keyUtilDown = Color.argb(a(240), 150, 165, 195),
-                keyStroke = Color.argb(40, 90, 100, 120),
-                text = Color.rgb(38, 43, 53),
-                icon = Color.rgb(60, 68, 85)
+                bgTop = Color.argb(a(255), 209, 212, 218),
+                bgBottom = Color.argb(a(255), 200, 203, 210),
+                stroke = Color.argb(120, 255, 255, 255),
+                key = Color.argb(a(255), 255, 255, 255),
+                keyUtil = Color.argb(a(255), 172, 177, 188),
+                keyDown = Color.argb(a(255), 225, 228, 235),
+                keyUtilDown = Color.argb(a(255), 150, 156, 168),
+                keyActive = Color.argb(a(255), 255, 255, 255),
+                keyStroke = Color.TRANSPARENT,
+                text = Color.rgb(25, 25, 28),
+                textActive = Color.rgb(25, 25, 28),
+                icon = Color.rgb(50, 50, 55)
             )
         }
     }
@@ -439,7 +446,7 @@ class GlassTypeImeService : InputMethodService() {
         snapTint = null
         snapBmp = null
 
-        // Lapisan asas: gradien lutsinar
+        // Lapisan asas
         val base = View(this)
         base.background = GradientDrawable(
             GradientDrawable.Orientation.TOP_BOTTOM,
@@ -625,7 +632,7 @@ class GlassTypeImeService : InputMethodService() {
         r2.addView(View(this), LinearLayout.LayoutParams(0, 1, 0.5f))
 
         val r3 = newRow()
-        r3.addView(makeKey(if (caps) "⬆" else "⇧", 1.4f, true) {
+        r3.addView(makeKey(if (caps) "⬆" else "⇧", 1.4f, true, false, caps) {
             caps = !caps
             buildKeys()
         })
@@ -721,6 +728,7 @@ class GlassTypeImeService : InputMethodService() {
         weight: Float,
         utility: Boolean = false,
         repeat: Boolean = false,
+        active: Boolean = false,
         action: () -> Unit
     ): Button {
         val d = resources.displayMetrics.density
@@ -728,8 +736,16 @@ class GlassTypeImeService : InputMethodService() {
         val radius = prefs().getInt("radius_dp", 7).coerceIn(0, 16) * d
         val strokePx = (1 * d).toInt().coerceAtLeast(1)
 
-        val normal = if (utility) pal.keyUtil else pal.key
-        val pressed = if (utility) pal.keyUtilDown else pal.keyDown
+        val normal = when {
+            active -> pal.keyActive
+            utility -> pal.keyUtil
+            else -> pal.key
+        }
+        val pressed = when {
+            active -> pal.keyActive
+            utility -> pal.keyUtilDown
+            else -> pal.keyDown
+        }
 
         val states = StateListDrawable()
         states.addState(
@@ -744,7 +760,7 @@ class GlassTypeImeService : InputMethodService() {
         button.text = label
         button.isAllCaps = false
         button.textSize = if (small) 14f else 18f
-        button.setTextColor(pal.text)
+        button.setTextColor(if (active) pal.textActive else pal.text)
         button.setPadding(0, 0, 0, 0)
         button.background = states
         button.stateListAnimator = null
