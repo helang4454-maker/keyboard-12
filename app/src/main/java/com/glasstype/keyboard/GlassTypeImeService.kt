@@ -2,10 +2,15 @@ package com.glasstype.keyboard
 
 import android.content.Context
 import android.content.res.Configuration
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Outline
 import android.graphics.Paint
 import android.graphics.RectF
+import android.graphics.RenderEffect
+import android.graphics.Shader
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
@@ -21,15 +26,18 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewOutlineProvider
 import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import java.io.File
 
 private class GlyphView(context: Context, private val kind: Int, color: Int) : View(context) {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -179,6 +187,9 @@ class GlassTypeImeService : InputMethodService() {
         }
     }
 
+    private fun withAlpha(c: Int, a: Int): Int =
+        Color.argb(a.coerceIn(0, 255), Color.red(c), Color.green(c), Color.blue(c))
+
     private fun palette(): Palette {
         val f = prefs().getInt("opacity", 85).coerceIn(20, 100) / 100f
         fun a(base: Int): Int = (base * f).toInt().coerceIn(0, 255)
@@ -229,18 +240,44 @@ class GlassTypeImeService : InputMethodService() {
     private fun applyLiveBlur() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             try {
+                val live = prefs().getBoolean("live_blur", false)
                 val w = window?.window ?: return
                 w.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-                w.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
                 val lp = w.attributes
-                lp.blurBehindRadius = 40
-                lp.dimAmount = 0f
-                w.attributes = lp
-                w.setBackgroundBlurRadius(60)
+                if (live) {
+                    w.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+                    lp.blurBehindRadius = 40
+                    lp.dimAmount = 0f
+                    w.attributes = lp
+                    w.setBackgroundBlurRadius(60)
+                } else {
+                    w.clearFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+                    lp.blurBehindRadius = 0
+                    w.attributes = lp
+                    w.setBackgroundBlurRadius(0)
+                }
             } catch (_: Exception) {
                 // Sesetengah pengeluar mematikan blur antara tetingkap.
             }
         }
+    }
+
+    private fun loadBackground(): Bitmap? {
+        val f = File(filesDir, "bg.jpg")
+        if (!f.exists()) return null
+        return try {
+            BitmapFactory.decodeFile(f.path)
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    private fun softBlur(src: Bitmap, level: Int): Bitmap {
+        if (level <= 0) return src
+        val div = 2 + level / 4
+        val w = (src.width / div).coerceAtLeast(2)
+        val h = (src.height / div).coerceAtLeast(2)
+        return Bitmap.createScaledBitmap(src, w, h, true)
     }
 
     // ---------- Tindakan ----------
@@ -317,23 +354,56 @@ class GlassTypeImeService : InputMethodService() {
     override fun onCreateInputView(): View {
         pal = palette()
         lastSig = settingsSignature()
+        val match = ViewGroup.LayoutParams.MATCH_PARENT
 
-        val bg = GradientDrawable(
-            GradientDrawable.Orientation.TOP_BOTTOM,
-            intArrayOf(pal.bgTop, pal.bgBottom)
-        )
-        if (prefs().getBoolean("round_top", false)) {
-            val r = dp(22).toFloat()
-            bg.cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f)
+        val frame = FrameLayout(this)
+
+        val bmp = loadBackground()
+        if (bmp != null) {
+            val iv = ImageView(this)
+            iv.scaleType = ImageView.ScaleType.CENTER_CROP
+            val level = prefs().getInt("img_blur", 60).coerceIn(0, 100)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                iv.setImageBitmap(bmp)
+                if (level > 0) {
+                    val r = level * resources.displayMetrics.density * 0.35f
+                    iv.setRenderEffect(RenderEffect.createBlurEffect(r, r, Shader.TileMode.CLAMP))
+                }
+            } else {
+                iv.setImageBitmap(softBlur(bmp, level))
+            }
+            frame.addView(iv, FrameLayout.LayoutParams(match, match))
+
+            val tintAlpha = prefs().getInt("img_tint", 35).coerceIn(0, 100) * 255 / 100
+            val tint = View(this)
+            tint.setBackgroundColor(withAlpha(pal.bgBottom, tintAlpha))
+            frame.addView(tint, FrameLayout.LayoutParams(match, match))
         } else {
-            bg.cornerRadius = 0f
+            val tint = View(this)
+            tint.background = GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                intArrayOf(pal.bgTop, pal.bgBottom)
+            )
+            frame.addView(tint, FrameLayout.LayoutParams(match, match))
         }
-        bg.setStroke(dp(1), pal.stroke)
+
+        val line = View(this)
+        line.setBackgroundColor(pal.stroke)
+        frame.addView(line, FrameLayout.LayoutParams(match, dp(1), Gravity.TOP))
+
+        if (prefs().getBoolean("round_top", false)) {
+            val r = dp(22)
+            frame.clipToOutline = true
+            frame.outlineProvider = object : ViewOutlineProvider() {
+                override fun getOutline(view: View, outline: Outline) {
+                    outline.setRoundRect(0, 0, view.width, view.height + r, r.toFloat())
+                }
+            }
+        }
 
         root = LinearLayout(this)
         root.orientation = LinearLayout.VERTICAL
         root.setPadding(dp(5), dp(8), dp(5), 0)
-        root.background = bg
 
         if (prefs().getBoolean("show_toolbar", true)) {
             root.addView(buildToolbar())
@@ -344,7 +414,9 @@ class GlassTypeImeService : InputMethodService() {
         root.addView(keyRows)
         buildKeys()
         root.addView(buildBottomBar())
-        return root
+
+        frame.addView(root, FrameLayout.LayoutParams(match, ViewGroup.LayoutParams.WRAP_CONTENT))
+        return frame
     }
 
     private fun tool(label: String, onClick: () -> Unit): TextView {
