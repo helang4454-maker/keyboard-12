@@ -2,4 +2,5 @@
     <string name="app_name">GlassType Keyboard</string>
     <string name="subtype_malay">Bahasa Melayu</string>
     <string name="subtype_english">English</string>
+    <string name="accessibility_desc">Mengambil tangkapan skrin sementara untuk dikaburkan sebagai latar keyboard GlassType. Tangkapan tidak disimpan ke fail dan tidak dihantar ke mana-mana.</string>
 </resources>
