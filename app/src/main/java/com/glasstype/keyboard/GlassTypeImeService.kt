@@ -38,6 +38,37 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 
+// Bekas yang saiznya mengikut kandungan terakhir (keyboard), bukan lapisan latar.
+private class GlassFrame(context: Context) : FrameLayout(context) {
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val n = childCount
+        if (n == 0) {
+            super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+            return
+        }
+        val content = getChildAt(n - 1)
+        measureChild(content, widthMeasureSpec, heightMeasureSpec)
+        val w = content.measuredWidth
+        val h = content.measuredHeight
+        for (i in 0 until n - 1) {
+            val c = getChildAt(i)
+            if (c.layoutParams.height == ViewGroup.LayoutParams.MATCH_PARENT) {
+                c.measure(
+                    View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.EXACTLY)
+                )
+            } else {
+                measureChild(
+                    c,
+                    View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.AT_MOST)
+                )
+            }
+        }
+        setMeasuredDimension(w, h)
+    }
+}
+
 private class GlyphView(context: Context, private val kind: Int, color: Int) : View(context) {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
 
@@ -403,7 +434,7 @@ class GlassTypeImeService : InputMethodService() {
         lastSig = settingsSignature()
         val match = ViewGroup.LayoutParams.MATCH_PARENT
 
-        val frame = FrameLayout(this)
+        val frame = GlassFrame(this)
         snapView = null
         snapTint = null
         snapBmp = null
@@ -471,6 +502,7 @@ class GlassTypeImeService : InputMethodService() {
         buildKeys()
         root.addView(buildBottomBar())
 
+        // Kandungan mesti jadi anak TERAKHIR supaya GlassFrame mengikut saiznya.
         frame.addView(root, FrameLayout.LayoutParams(match, ViewGroup.LayoutParams.WRAP_CONTENT))
         return frame
     }
@@ -504,7 +536,7 @@ class GlassTypeImeService : InputMethodService() {
     }
 
     private fun buildBottomBar(): LinearLayout {
-        val h = prefs().getInt("bottom_dp", 64).coerceIn(30, 220)
+        val h = prefs().getInt("bottom_dp", 64).coerceIn(44, 220)
         val bar = LinearLayout(this)
         bar.orientation = LinearLayout.VERTICAL
         bar.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(h))
